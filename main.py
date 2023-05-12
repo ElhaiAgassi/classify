@@ -1,10 +1,14 @@
+import json
+import os
+
 import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
 
 
 class AdalineSGD:
-    def __init__(self, learning_rate=0.01, num_iterations=10, random_seed=1, epochs=50):
+    def __init__(self, learning_rate=0.01, num_iterations=50, random_seed=1, epochs=20):
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.random_seed = random_seed
@@ -44,22 +48,23 @@ class AdalineSGD:
         # and assigning 1 if the output is greater than or equal to 0, otherwise -1
         return np.where(self.activation_function(self.calculate_net_input(features)) >= 0.0, 1, -1)
 
-
 def classify_letters(data, letter1, letter2):
     # Filter the data to include only the specified letters
-    filtered_data = [x for x in data if x[1] in [letter1, letter2]]
-
+    filtered_data = [x for x in data if x[0] in [letter1, letter2]]
     if not filtered_data:
         print(f"No data found for labels {letter1} and {letter2}")
         return
 
-    features, labels = zip(*[(feature, label) for feature, label in filtered_data])
+    features, labels = zip(*[(item[1:], item[0]) for item in filtered_data])
 
     features = np.array(features)
     labels = np.array(labels)
 
     # Convert labels to binary values (1 or -1) based on the specified letters
     labels = np.where(labels == letter1, 1, -1)
+
+    # Split the data into 80% for training and 20% for testing
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
 
     # Create an instance of the AdalineSGD class
     model = AdalineSGD()
@@ -68,42 +73,68 @@ def classify_letters(data, letter1, letter2):
     kf = KFold(n_splits=5)
 
     accuracies = []
-    for train_index, test_index in kf.split(features):
-        X_train, X_test = features[train_index], features[test_index]
-        y_train, y_test = labels[train_index], labels[test_index]
+    for train_index, test_index in kf.split(X_train):
+        X_train_fold, X_test_fold = X_train[train_index], X_train[test_index]
+        y_train_fold, y_test_fold = y_train[train_index], y_train[test_index]
 
-        # Train the model using the training data
-        model.fit(X_train, y_train)
+        # Train the model using the training data from the fold
+        model.fit(X_train_fold, y_train_fold)
 
-        # Predict the labels of the test data
-        # Predict the labels of the test data
-        predictions = model.predict(X_test)
+        # Predict the labels of the test data from the fold
+        predictions = model.predict(X_test_fold)
 
         # Calculate the accuracy of the model by comparing the predicted labels to the true labels
-        accuracy = accuracy_score(y_test, predictions)
+        accuracy = accuracy_score(y_test_fold, predictions)
         accuracies.append(accuracy)
 
-    # Return the average accuracy across all cross-validation folds
+    # Finally, evaluate the model on the test set
+    predictions = model.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+    print("Test accuracy: ", accuracy)
+
     return np.mean(accuracies)
 
 
-def parse_data(filename):
+def load_data(dirname: str) -> list[np.array]:
     data = []
-    with open(filename, 'r') as f:
-        for line in f:
-            # Parse each line of the file to extract the label and features
-            elements = line.strip().replace('(', '').replace(')', '').split(',')
-            elements = [int(e) for e in elements]
-            label = elements[0]
-            features = elements[1:]
-            # Append the features and label as a tuple to the data list
-            data.append((features, label))
+
+    files = [os.path.join(dirname, file) for file in os.listdir(dirname) if os.path.isfile(os.path.join(dirname, file))]
+
+    print("Loading", len(files), "files as data")
+    for file in files:
+        try:
+            with open(file) as f:
+                content = f.read()
+        except:
+            print("Error in: ", file)
+            continue
+
+        content = content.replace("(", "[").replace(")", "]")
+
+        for line in content.split('\n'):
+            if ('[' in line) and (']' in line):
+                try:
+                    arr = json.loads(line)
+                    if isinstance(arr, list):
+                        img = np.array(arr)
+                        if img.size != 101 or ((img[1:] == -1) | (img[1:] == 1)).sum() != 100:
+                            print("Error in: ", file)
+                        else:
+                            data.append(img)
+                except:
+                    print("Error in: ", file)
+
+    print(len(data), " images loaded as data")
+
     return data
-
-
 if __name__ == '__main__':
-    # Parse the data from the file
-    data = parse_data("result.txt")
+    # Directory containing the files
+    directory = 'C:/Cws/Adaline/lettersVecFiles'
+    # List all files in the directory and its subdirectories
+    data = []
+
+    data.extend(load_data("vec"))
+    data.extend(load_data("tvec"))
 
     # Classify the letters and calculate the average accuracies for different pairs of letters
     print("Average accuracy for bet vs mem: ", classify_letters(data, 1, 2))
