@@ -5,10 +5,11 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
 class AdalineSGD:
-    def __init__(self, learning_rate=0.01, num_iterations=50, random_seed=1, epochs=20):
+    def __init__(self, learning_rate=0.01, num_iterations=100, random_seed=1, epochs=20):
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.random_seed = random_seed
@@ -48,24 +49,28 @@ class AdalineSGD:
         # and assigning 1 if the output is greater than or equal to 0, otherwise -1
         return np.where(self.activation_function(self.calculate_net_input(features)) >= 0.0, 1, -1)
 
-def classify_letters(data, letter1, letter2):
-    # Filter the data to include only the specified letters
-    filtered_data = [x for x in data if x[0] in [letter1, letter2]]
-    if not filtered_data:
-        print(f"No data found for labels {letter1} and {letter2}")
-        return
 
-    features, labels = zip(*[(item[1:], item[0]) for item in filtered_data])
+def preprocess_data(data):
+    features, labels = zip(*[(item[1:], item[0]) for item in data])
 
     features = np.array(features)
     labels = np.array(labels)
 
-    # Convert labels to binary values (1 or -1) based on the specified letters
-    labels = np.where(labels == letter1, 1, -1)
+    # Convert labels to binary values (1 or -1)
+    labels = np.where(labels == 1, 1, -1)
 
-    # Split the data into 80% for training and 20% for testing
+    # Split the data into training and test sets
     X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
 
+    # Scale the features using StandardScaler
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    return X_train, X_test, y_train, y_test
+
+
+def train_and_evaluate_model(X_train, X_test, y_train, y_test):
     # Create an instance of the AdalineSGD class
     model = AdalineSGD()
 
@@ -87,7 +92,10 @@ def classify_letters(data, letter1, letter2):
         accuracy = accuracy_score(y_test_fold, predictions)
         accuracies.append(accuracy)
 
-    # Finally, evaluate the model on the test set
+    # Print the average training accuracy across all cross-validation folds
+    print("Average training accuracy: ", np.mean(accuracies))
+
+    # Evaluate the model on the test set
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
     print("Test accuracy: ", accuracy)
@@ -127,16 +135,21 @@ def load_data(dirname: str) -> list[np.array]:
     print(len(data), " images loaded as data")
 
     return data
+
+
 if __name__ == '__main__':
     # Directory containing the files
     directory = 'C:/Cws/Adaline/lettersVecFiles'
-    # List all files in the directory and its subdirectories
-    data = []
 
+    # Load the data
+    data = []
     data.extend(load_data("vec"))
     data.extend(load_data("tvec"))
 
-    # Classify the letters and calculate the average accuracies for different pairs of letters
-    print("Average accuracy for bet vs mem: ", classify_letters(data, 1, 2))
-    print("Average accuracy for lamed vs bet: ", classify_letters(data, 3, 1))
-    print("Average accuracy for lamed vs mem: ", classify_letters(data, 3, 2))
+    # Preprocess the data
+    X_train, X_test, y_train, y_test = preprocess_data(data)
+
+    # Train and evaluate the model
+    print("Average accuracy for bet vs mem: ", train_and_evaluate_model(X_train, X_test, y_train, y_test))
+    print("Average accuracy for lamed vs bet: ", train_and_evaluate_model(X_train, X_test, y_train, y_test))
+    print("Average accuracy for lamed vs mem: ", train_and_evaluate_model(X_train, X_test, y_train, y_test))
