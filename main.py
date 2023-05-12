@@ -5,12 +5,12 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
+# from imblearn.over_sampling import SMOTE
 
 
 class AdalineSGD:
-    def __init__(self, learning_rate=0.01, num_iterations=50, random_seed=1, epochs=20):
+    def __init__(self, learning_rate=0.01, num_iterations=100, random_seed=1):
         self.learning_rate = learning_rate
-        self.epochs = epochs
         self.random_seed = random_seed
         self.num_iterations = num_iterations
 
@@ -18,20 +18,18 @@ class AdalineSGD:
         if len(training_data.shape) == 1:
             training_data = training_data.reshape(-1, 1)
 
-        random_generator = np.random.RandomState(self.random_seed)
-        # Initialize weights randomly from a normal distribution with mean 0 and standard deviation 0.01
-        self.weights = random_generator.normal(loc=0.0, scale=0.01, size=1 + training_data.shape[1])
+        # Initialize weights to zero
+        self.weights = np.zeros(1 + training_data.shape[1])
 
         for _ in range(self.num_iterations):
-            # Calculate the net input (weighted sum) of the features
-            net_input = self.calculate_net_input(training_data)
-            # Apply the activation function to the net input (identity function in this case)
-            output = self.activation_function(net_input)
-            # Calculate the errors as the difference between the training labels and the predicted output
-            errors = (training_labels - output)
-            # Update the weights using Stochastic Gradient Descent (SGD)
-            self.weights[1:] += self.learning_rate * training_data.T.dot(errors)
-            self.weights[0] += self.learning_rate * errors.sum()
+            # Shuffle the data
+            shuffled_indices = np.random.permutation(len(training_data))
+            for i in shuffled_indices:
+                net_input = self.calculate_net_input(training_data[i])
+                output = self.activation_function(net_input)
+                errors = (training_labels[i] - output)
+                self.weights[1:] += self.learning_rate * training_data[i] * errors
+                self.weights[0] += self.learning_rate * errors
 
         return self
 
@@ -47,6 +45,13 @@ class AdalineSGD:
         # Predict the class labels by calculating the net input, applying the activation function,
         # and assigning 1 if the output is greater than or equal to 0, otherwise -1
         return np.where(self.activation_function(self.calculate_net_input(features)) >= 0.0, 1, -1)
+
+
+
+# def balance_data(features, labels):
+#     sm = SMOTE(random_state=42)
+#     return sm.fit_resample(features, labels)
+#
 
 def classify_letters(data, letter1, letter2):
     # Filter the data to include only the specified letters
@@ -66,33 +71,52 @@ def classify_letters(data, letter1, letter2):
     # Split the data into 80% for training and 20% for testing
     X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
 
-    # Create an instance of the AdalineSGD class
-    model = AdalineSGD()
-
     # Use K-Fold cross-validation for training and evaluating the model
     kf = KFold(n_splits=5)
 
-    accuracies = []
-    for train_index, test_index in kf.split(X_train):
-        X_train_fold, X_test_fold = X_train[train_index], X_train[test_index]
-        y_train_fold, y_test_fold = y_train[train_index], y_train[test_index]
+    learning_rates = [0.0001, 0.001, 0.01]  # different learning rates to try
+    num_iterations_list = [100, 500, 1000]  # different numbers of iterations to try
 
-        # Train the model using the training data from the fold
-        model.fit(X_train_fold, y_train_fold)
+    best_accuracy = 0
+    best_lr = None
+    best_num_iterations = None
 
-        # Predict the labels of the test data from the fold
-        predictions = model.predict(X_test_fold)
+    # Try each combination of hyperparameters
+    for lr in learning_rates:
+        for num_iterations in num_iterations_list:
+            accuracies = []
 
-        # Calculate the accuracy of the model by comparing the predicted labels to the true labels
-        accuracy = accuracy_score(y_test_fold, predictions)
-        accuracies.append(accuracy)
+            for train_index, test_index in kf.split(X_train):
+                X_train_fold, X_test_fold = X_train[train_index], X_train[test_index]
+                y_train_fold, y_test_fold = y_train[train_index], y_train[test_index]
 
-    # Finally, evaluate the model on the test set
+                # Create an instance of the AdalineSGD class with the current hyperparameters
+                model = AdalineSGD(learning_rate=lr, num_iterations=num_iterations)
+
+                # Train the model using the training data from the fold
+                model.fit(X_train_fold, y_train_fold)
+
+                # Predict the labels of the test data from the fold
+                predictions = model.predict(X_test_fold)
+
+                # Calculate the accuracy of the model by comparing the predicted labels to the true labels
+                accuracy = accuracy_score(y_test_fold, predictions)
+                accuracies.append(accuracy)
+
+            # If this combination of hyperparameters achieved the highest average accuracy so far, store it
+            if np.mean(accuracies) > best_accuracy:
+                best_accuracy = np.mean(accuracies)
+                best_lr = lr
+                best_num_iterations = num_iterations
+
+    # Now we know the best hyperparameters, train the final model on the entire training set
+    model = AdalineSGD(learning_rate=best_lr, num_iterations=best_num_iterations)
+    model.fit(X_train, y_train)
+
+    # Evaluate the model on the test set
     predictions = model.predict(X_test)
-    accuracy = accuracy_score(y_test, predictions)
-    print("Test accuracy: ", accuracy)
 
-    return np.mean(accuracies)
+    return accuracy_score(y_test, predictions)
 
 
 def load_data(dirname: str) -> list[np.array]:
@@ -127,6 +151,8 @@ def load_data(dirname: str) -> list[np.array]:
     print(len(data), " images loaded as data")
 
     return data
+
+
 if __name__ == '__main__':
     # Directory containing the files
     directory = 'C:/Cws/Adaline/lettersVecFiles'
